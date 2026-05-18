@@ -1,0 +1,10 @@
+{
+  "name": "student-2M",
+  "block_size": 256,
+  "vocab_size": 67,
+  "n_layer": 8,
+  "n_head": 8,
+  "n_embd": 256,
+  "dropout": 0.0,
+  "bias": false
+}

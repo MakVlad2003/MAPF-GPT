@@ -1,139 +1,159 @@
-# Дополнения к MAPF-GPT
+# LightWeight MAPF-GPT — `extras/`
 
-Здесь лежат скрипты и эталонные правки к ядру, которые не входят в оригинальный репозиторий [CognitiveAISystems/MAPF-GPT](https://github.com/CognitiveAISystems/MAPF-GPT).
+Дополнения к [CognitiveAISystems/MAPF-GPT](https://github.com/CognitiveAISystems/MAPF-GPT):
+**сжатие модели** (trim, dynamic int8, AWQ, SmoothQuant), **дистилляция**
+с hidden-state-сигналом и multi-position-таргетами, единый **бенчмарк POGEMA**
+и **чистая latency-бенчмарка**.
 
-## Запуск
+Все экспериментальные артефакты пишутся в `extras/runs/<category>/<timestamp>_<tag>/`.
 
-Рабочая директория — **корень клона** (где лежат `mapf_gpt/`, `example.py`, `weights/`):
+## Структура
+
+```
+extras/
+  lmgpt/                       # питон-пакет с переиспользуемой логикой
+    checkpoints.py             # I/O чекпойнтов
+    compression/               # trim, dynamic_int8, awq, smoothquant
+    distillation/              # data, losses, trainer, finetune
+    eval/                      # POGEMA harness, comparison tables, latency
+    utils/                     # env capture, jsonl, run-dirs
+  scripts/                     # тонкие CLI-обёртки над lmgpt
+  configs/
+    students/                  # JSON-конфиги студентов (GPTConfig fields)
+    distill/                   # JSON-конфиги тренировки дистилляции
+    awq/                       # конфиги квантизации
+  runs/                        # все эксперименты пишут сюда (в .gitignore)
+    baselines/  trim/  trim_ft/  distill/  awq/  latency/  reports/
+  integration/                 # эталонные правки upstream-кода (inference, example)
+```
+
+## Среда
+
+Все скрипты ожидают активного окружения `mapf-gpt`:
 
 ```bash
-cd /path/to/MAPF-GPT
-source .venv/bin/activate   # или ваше окружение
+source /data/conda/miniconda3/etc/profile.d/conda.sh
+conda activate mapf-gpt
+cd /data/homes/makarov_vd/workspace/CCM/MAPF-GPT
 ```
 
-## Скрипты в `extras/`
+PyTorch 2.10 + CUDA 12.8 в этом окружении уже есть. Опциональные
+зависимости (`torchao`, `bitsandbytes`) ставятся отдельно.
 
-| Файл | Назначение |
-|------|------------|
-| `trim_model.py` | Усечь глубину трансформера: оставить первые `n_layer` блоков из чекпоинта (без дообучения). |
-| `quantize_checkpoint.py` | Динамическая int8-квантизация `Linear` → меньший `.pt`; инференс в PyTorch на CPU. |
-| `compare_three_metrics.py` | Один сценарий, три веса (2M / trim / int8), метрики и PNG-график. |
-| `clean_checkpoint.py` | Очистка метаданных модели (optimizer state, config) для инференса |
-| `compare_metrics.py` | Один сценарий, шесть весов (2M / L3 (trim) / L3 (trim, ft) / L4 (trim) / L4 (trim, ft) / int8), метрики и PNG-график. |
+### Comet ML (обучение)
 
-Примеры:
+Дистилляция и finetune **по умолчанию логируют метрики в Comet** (графики
+`train_batch_loss`, `val_*`, `rollout_*`, `lr`). Ключ: `extras/.key_comet`
+(первая строка) или переменная `COMET_API_KEY`. Проект по умолчанию:
+`LightWeight-MAPF-GPT` (переопределение: `COMET_PROJECT_NAME` или
+`--comet-project`). Отключить: `--no-comet`.
 
 ```bash
-python extras/trim_model.py -i weights/model-2M.pt -o weights/model-2M-L3.pt --n_layer 3
-python extras/quantize_checkpoint.py -i weights/model-2M.pt -o weights/model-2M-int8.pt
-python extras/compare_three_metrics.py --map_name validation-mazes-seed-000 -o svg/compare-three-metrics.png
-
-python extras/clean_checkpoint.py -i out_finetuned/L4/ckpt.pt -o weights/L4-ft.pt
-python extras/compare_metrics.py --map_name validation-mazes-seed-000 -o svg/compare-metrics.png
+pip install comet-ml
 ```
 
-## Правки в основном коде
+## Что → каким скриптом
 
-В этой копии репозитория уже применены изменения:
+| Что нужно сделать                                            | CLI                                                                 |
+|--------------------------------------------------------------|---------------------------------------------------------------------|
+| Срезать слои у чекпойнта                                     | `extras/scripts/trim.py`                                            |
+| Дообучить срезанный чекпойнт (CE или CE+KL self-distill)     | `extras/scripts/finetune_trimmed.py`                                |
+| Дистиллировать в маленького студента (вкл. hidden+multipos)  | `extras/scripts/train_distill.py`                                   |
+| Квантовать в W4A16 (AWQ) под GPU                             | `extras/scripts/quantize_awq.py`                                    |
+| SmoothQuant-preprocessing (W8A8 quality ablation)            | `extras/scripts/quantize_smoothquant.py`                            |
+| Dynamic int8 (CPU-only baseline / antipattern)               | `extras/scripts/quantize_dynamic_int8.py`                           |
+| Прогнать POGEMA benchmark (авторские веса или custom)        | `extras/scripts/eval_pogema.py`                                     |
+| Собрать таблицы сравнения нескольких run-ов                  | `extras/scripts/compare_runs.py`                                    |
+| Замерить чистую forward-latency без среды                    | `extras/scripts/bench_latency.py`                                   |
 
-- **`mapf_gpt/inference.py`** — загрузка int8-чекпоинтов (`quantized`), `strip_prefix` с сохранением `_metadata`, поле **`infer_dtype`** (`float32` / `bfloat16` / `float16`) для GPU.
-- **`example.py`** — флаги **`--weights`**, **`--dtype`**.
+Подробности — внутри каждого скрипта (`--help`) и в докстрингах модулей пакета.
 
-Эталонные копии для переноса на чистый апстрим лежат в **`extras/integration/`**:
+## Типичный конвейер (полный цикл)
 
 ```bash
-cp extras/integration/mapf_gpt/inference.py mapf_gpt/inference.py
-cp extras/integration/example.py example.py
+# 1. Бейзлайны (2M, 6M, 85M) — на полном POGEMA, FP32
+python extras/scripts/eval_pogema.py --models 2M 6M 85M \
+  --output-root extras/runs/baselines
+
+# 2. Trim + fine-tune (CE+KL self-distillation)
+python extras/scripts/trim.py -i weights/model-2M.pt -o weights/model-2M-L4.pt --n_layer 4
+python extras/scripts/finetune_trimmed.py \
+  --trimmed weights/model-2M-L4.pt --teacher weights/model-2M.pt \
+  --mode ce_kl --out-dir extras/runs/trim_ft/L4_cekl
+python extras/scripts/eval_pogema.py \
+  --custom-weights extras/runs/trim_ft/2026-..._L4_cekl/ckpt_best.pt \
+  --custom-model-name 2M-L4-cekl \
+  --output-root extras/runs/trim_ft
+
+# 3. Дистилляция (KL+CE + hidden-state + multipos)
+python extras/scripts/train_distill.py \
+  --config extras/configs/distill/with_hidden.json \
+  --student extras/configs/students/student-2M.json \
+  --teacher weights/model-85M.pt \
+  --out-dir extras/runs/distill/2M_from_85M_hidden
+python extras/scripts/eval_pogema.py \
+  --custom-weights extras/runs/distill/2026-..._2M_from_85M_hidden/ckpt_best.pt \
+  --custom-model-name student-2M-distilled-85M-hidden \
+  --output-root extras/runs/distill
+
+# 4. AWQ-квантизация
+python extras/scripts/quantize_awq.py \
+  -i weights/model-2M.pt -o weights/model-2M-awq.pt \
+  --calib-data dataset/validation --calib-batches 256 --calib-max-files 4
+python extras/scripts/eval_pogema.py \
+  --custom-weights weights/model-2M-awq.pt \
+  --custom-model-name 2M-AWQ-W4A16 \
+  --output-root extras/runs/awq
+
+# 5. Чистая latency-бенчмарка
+python extras/scripts/bench_latency.py \
+  --weights weights/model-2M.pt --label 2M_FP32
+
+# 6. Сводный отчёт
+python extras/scripts/compare_runs.py \
+  --runs extras/runs/baselines/2026-... \
+  extras/runs/trim_ft/2026-... \
+  extras/runs/distill/2026-... \
+  extras/runs/awq/2026-...
 ```
 
-## Зависимости
+## Соглашения
 
-Те же, что у проекта (`docker/requirements.txt`): PyTorch, `pogema-toolbox`, `matplotlib` для графика сравнения.
+- **Корень запуска**: все CLI выполняются из корня репозитория (`MAPF-GPT/`).
+- **Output layout**: `<out_dir_base_parent>/<YYYY-MM-DD_HH-MM-SS>_<basename>/...` —
+  внутри лежат `ckpt_*.pt`, `metrics.jsonl`, `summary_latest.json`, `run_config.json`,
+  `environment.txt` (git/python/torch/nvidia-smi), `errors.log`, опциональный `README.md`.
+- **POGEMA метрики**: `CSR`, `ISR`, `SoC`, `ep_length`, `runtime` (end-to-end). См.
+  [POGEMA paper](https://arxiv.org/abs/2407.14931).
 
-## Дообучение после тримминга
-
-Для дообучения необходимо добавить конфиг для модели после тримминга в папку `mapf_gpt`. Для L3 и L4 уже созданы соответствующие конфиги: `config_finetune_L3.py` и `config_finetune_L4.py`. Внутри этих конфигов в том числе заданы пути к тренировочному и валидационному датасетам, а также путь к выходному файлу (настроить пути при необходимости).
-
-Нужно добавить чекпоинт для дообучения по пути параметра `out_dir`:
-```bash
-cp weights/model-2M-L4.pt out_finetuned/L4/ckpt.pt
-```
-
-Само дообучение запускается скриптом `finetune.py`, который является немного видоизмененной версией файла `train.py`. Запуск дообучения:
-
-```bash
-python finetune.py mapf_gpt/config_finetune_L4.py
-```
-
-Результаты дообучения лежат в папке `out_finetuned`.
-
-Эти чекпоинты содержат служебные данные, что приводит к увеличению веса файла. Чтобы очистить их и подготовить к инференсу, запускаем скрипт:
-
-```bash
-python extras/clean_checkpoint.py -i out_finetuned/L4/ckpt.pt -o weights/L4-ft.pt
-```
-
-## Изменения для бенчмаркинга
-
-Для оценки кастомных моделей требуется изменить следующие файлы:
-
-```bash
-MAPF-GPT/
-└── eval_configs/
-    ├── 01-random
-    │   └── 01-random.yaml
-    ├── 02-mazes
-    │   └── 02-mazes.yaml
-    ├── 03-warehouse
-    │   └── 03-warehouse.yaml
-    ├── 04-moningai
-    │   └──  04-moningai.yaml
-    └── 05-puzzles
-        └── 05-puzzles.yaml
-```
-
-В них изменить `algoritms` (уже сделано):
-
-```yaml
-algorithms:
-  # Original
-  MAPF-GPT-2M:
-    name: MAPF-GPT
-    path_to_weights: weights/model-2M.pt
-  
-  # L4 trimmed
-  MAPF-GPT-2M-L4:
-    name: MAPF-GPT
-    path_to_weights: weights/model-2M-L4.pt
-  
-  # L4 fine-tuned
-  MAPF-GPT-2M-L4-ft:
-    name: MAPF-GPT
-    path_to_weights: weights/model-2M-L4-finetuned.pt
-  
-  # L3 trimmed
-  MAPF-GPT-2M-L3:
-    name: MAPF-GPT
-    path_to_weights: weights/model-2M-L3.pt
-
-  # L3 fine-tuned
-  MAPF-GPT-2M-L3-ft:
-    name: MAPF-GPT
-    path_to_weights: weights/model-2M-L3-finetuned.pt
-```
-
-Запуск бенчмаркинга такой же, как в оригинале:
+## Зависимости (опциональные)
 
 ```bash
-python benchmark.py
+pip install comet-ml  # логирование обучения (train_distill, finetune_trimmed)
+pip install torchao   # W4/W8 GPU kernels (необходим для AWQ-инференса)
 ```
 
-Результаты бенчмаркинга будут в папках карт в папке `eval_configs`.
+## Финальные эксперименты
 
-Визуализация результатов:
+Полный отчёт (POGEMA + latency по всем чекпойнтам, разбивка по `num_agents`):
+**[REPORT.md](REPORT.md)**.
+
+Сводки: `extras/runs/reports/final_2026-05-17/` (`global_by_model.md`,
+`by_map_group_agents.md`, `latency_b2048.md`).
+
+Частичные прогоны (smoke / 2 группы POGEMA) удалены. Запускайте этапы из
+раздела «Типичный конвейер» с **полным** eval (без `--groups`) и полным
+обучением (без `--max-train-files`).
+
+### Веса (не в git)
+
+Список канонических чекпойнтов: `extras/weights_manifest.json`. Упаковать zip
+для передачи коллегам:
 
 ```bash
-python extras/view_results.py
+bash extras/scripts/package_weights.sh v1
+# -> dist/lightweight-checkpoints-v1.zip (~200–250 MB)
 ```
 
-Результаты визуализации будут в папке `plots/by_map`.
+Author **2M/6M/85M** — как в [upstream README](https://github.com/JohnSili/MAPF-GPT)
+(Hugging Face). В zip только наши обученные модели.

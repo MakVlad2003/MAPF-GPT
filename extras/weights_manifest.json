@@ -1,0 +1,75 @@
+{
+  "_doc": "Canonical LightWeight checkpoints (May 2026). Files are NOT in git; pack with extras/scripts/package_weights.sh",
+  "version": "v1",
+  "report": "extras/REPORT.md",
+  "checkpoints": [
+    {
+      "id": "T1",
+      "name": "2M-L4-ce_kl",
+      "role": "recommended replacement for author-2M",
+      "source": "extras/runs/trim_ft/2026-05-15_20-36-05_L4_cekl/ckpt_best.pt",
+      "pack_as": "trim_ft/T1-L4-ce_kl.pt"
+    },
+    {
+      "id": "T2",
+      "name": "2M-L3-ce_kl",
+      "source": "extras/runs/trim_ft/2026-05-15_20-45-27_L3_cekl/ckpt_best.pt",
+      "pack_as": "trim_ft/T2-L3-ce_kl.pt"
+    },
+    {
+      "id": "T3",
+      "name": "2M-L4-ce_only",
+      "source": "extras/runs/trim_ft/2026-05-15_20-47-39_L4_ce_only/ckpt_best.pt",
+      "pack_as": "trim_ft/T3-L4-ce_only.pt"
+    },
+    {
+      "id": "C1",
+      "name": "2M-L4-trim",
+      "source": "weights/model-2M-L4.pt",
+      "pack_as": "weights/model-2M-L4-trim.pt"
+    },
+    {
+      "id": "C2",
+      "name": "2M-L3-trim",
+      "source": "weights/model-2M-L3.pt",
+      "pack_as": "weights/model-2M-L3-trim.pt"
+    },
+    {
+      "id": "C3",
+      "name": "2M-AWQ-W4A16",
+      "source": "weights/model-2M-awq.pt",
+      "pack_as": "weights/model-2M-awq.pt"
+    },
+    {
+      "id": "D1",
+      "name": "1M-distilled-6M",
+      "source": "extras/runs/distill/2026-05-15_21-10-21_1M_from_6M/ckpt_best.pt",
+      "pack_as": "distill/D1-1M-from-6M.pt"
+    },
+    {
+      "id": "D2",
+      "name": "1M-distilled-85M-default",
+      "source": "extras/runs/distill/2026-05-15_21-10-26_1M_from_85M_default/ckpt_best.pt",
+      "pack_as": "distill/D2-1M-from-85M-default.pt"
+    },
+    {
+      "id": "D3",
+      "name": "1M-distilled-85M-hidden",
+      "source": "extras/runs/distill/2026-05-15_21-10-31_1M_from_85M_hidden/ckpt_best.pt",
+      "pack_as": "distill/D3-1M-from-85M-hidden.pt"
+    },
+    {
+      "id": "D4",
+      "name": "1.5M-distilled-85M-hidden",
+      "source": "extras/runs/distill/2026-05-16_13-58-44_1.5M_from_85M_hidden/ckpt_best.pt",
+      "pack_as": "distill/D4-1.5M-from-85M-hidden.pt"
+    },
+    {
+      "id": "D5",
+      "name": "2M-distilled-85M-hidden",
+      "note": "student is 8x256 (~6.4M params), not author-2M architecture",
+      "source": "extras/runs/distill/2026-05-16_13-59-24_2M_from_85M_hidden/ckpt_best.pt",
+      "pack_as": "distill/D5-8L256-from-85M-hidden.pt"
+    }
+  ]
+}
